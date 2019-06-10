@@ -1,5 +1,7 @@
-from django.conf.urls import patterns, url
+from django.urls import path
 
-urlpatterns = patterns('',
-    url(r'^index/$', 'view_tests.views.index_page', name='index'),
-)
+from . import views
+
+urlpatterns = [
+    path('index/', views.index_page, name='index'),
+]

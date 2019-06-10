@@ -1,25 +1,42 @@
 """
 Settings and configuration for Django.
 
-Values will be read from the module specified by the DJANGO_SETTINGS_MODULE environment
-variable, and then from django.conf.global_settings; see the global settings file for
-a list of all possible variables.
+Read values from the module specified by the DJANGO_SETTINGS_MODULE environment
+variable, and then from django.conf.global_settings; see the global_settings.py
+for a list of all possible variables.
 """
 
 import importlib
-import logging
 import os
-import sys
-import time     # Needed for Windows
+import time
+import traceback
 import warnings
+from pathlib import Path
 
+import django
 from django.conf import global_settings
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.deprecation import RemovedInDjango31Warning
 from django.utils.functional import LazyObject, empty
-from django.utils.module_loading import import_by_path
-from django.utils import six
 
 ENVIRONMENT_VARIABLE = "DJANGO_SETTINGS_MODULE"
+
+FILE_CHARSET_DEPRECATED_MSG = (
+    'The FILE_CHARSET setting is deprecated. Starting with Django 3.1, all '
+    'files read from disk must be UTF-8 encoded.'
+)
+
+
+class SettingsReference(str):
+    """
+    String subclass which references a current settings value. It's treated as
+    the value in memory but serializes to a settings.NAME attribute reference.
+    """
+    def __new__(self, value, setting_name):
+        return str.__new__(self, value)
+
+    def __init__(self, value, setting_name):
+        self.setting_name = setting_name
 
 
 class LazySettings(LazyObject):
@@ -31,14 +48,11 @@ class LazySettings(LazyObject):
     def _setup(self, name=None):
         """
         Load the settings module pointed to by the environment variable. This
-        is used the first time we need any settings at all, if the user has not
-        previously configured the settings manually.
+        is used the first time settings are needed, if the user hasn't
+        configured settings manually.
         """
-        try:
-            settings_module = os.environ[ENVIRONMENT_VARIABLE]
-            if not settings_module:  # If it's set but is an empty string.
-                raise KeyError
-        except KeyError:
+        settings_module = os.environ.get(ENVIRONMENT_VARIABLE)
+        if not settings_module:
             desc = ("setting %s" % name) if name else "settings"
             raise ImproperlyConfigured(
                 "Requested %s, but settings are not configured. "
@@ -47,33 +61,38 @@ class LazySettings(LazyObject):
                 % (desc, ENVIRONMENT_VARIABLE))
 
         self._wrapped = Settings(settings_module)
-        self._configure_logging()
+
+    def __repr__(self):
+        # Hardcode the class name as otherwise it yields 'Settings'.
+        if self._wrapped is empty:
+            return '<LazySettings [Unevaluated]>'
+        return '<LazySettings "%(settings_module)s">' % {
+            'settings_module': self._wrapped.SETTINGS_MODULE,
+        }
 
     def __getattr__(self, name):
+        """Return the value of a setting and cache it in self.__dict__."""
         if self._wrapped is empty:
             self._setup(name)
-        return getattr(self._wrapped, name)
+        val = getattr(self._wrapped, name)
+        self.__dict__[name] = val
+        return val
 
-    def _configure_logging(self):
+    def __setattr__(self, name, value):
         """
-        Setup logging from LOGGING_CONFIG and LOGGING settings.
+        Set the value of setting. Clear all cached values if _wrapped changes
+        (@override_settings does this) or clear single values when set.
         """
-        if not sys.warnoptions:
-            # Route warnings through python logging
-            logging.captureWarnings(True)
-            # Allow DeprecationWarnings through the warnings filters
-            warnings.simplefilter("default", DeprecationWarning)
+        if name == '_wrapped':
+            self.__dict__.clear()
+        else:
+            self.__dict__.pop(name, None)
+        super().__setattr__(name, value)
 
-        if self.LOGGING_CONFIG:
-            from django.utils.log import DEFAULT_LOGGING
-            # First find the logging configuration function ...
-            logging_config_func = import_by_path(self.LOGGING_CONFIG)
-
-            logging_config_func(DEFAULT_LOGGING)
-
-            # ... then invoke it with the logging settings
-            if self.LOGGING:
-                logging_config_func(self.LOGGING)
+    def __delattr__(self, name):
+        """Delete a setting and clear it from cache if needed."""
+        super().__delattr__(name)
+        self.__dict__.pop(name, None)
 
     def configure(self, default_settings=global_settings, **options):
         """
@@ -85,37 +104,32 @@ class LazySettings(LazyObject):
             raise RuntimeError('Settings already configured.')
         holder = UserSettingsHolder(default_settings)
         for name, value in options.items():
+            if not name.isupper():
+                raise TypeError('Setting %r must be uppercase.' % name)
             setattr(holder, name, value)
         self._wrapped = holder
-        self._configure_logging()
 
     @property
     def configured(self):
-        """
-        Returns True if the settings have already been configured.
-        """
+        """Return True if the settings have already been configured."""
         return self._wrapped is not empty
 
-
-class BaseSettings(object):
-    """
-    Common logic for settings whether set by a module or by the user.
-    """
-    def __setattr__(self, name, value):
-        if name in ("MEDIA_URL", "STATIC_URL") and value and not value.endswith('/'):
-            raise ImproperlyConfigured("If set, %s must end with a slash" % name)
-        elif name == "ALLOWED_INCLUDE_ROOTS" and isinstance(value, six.string_types):
-            raise ValueError("The ALLOWED_INCLUDE_ROOTS setting must be set "
-                "to a tuple, not a string.")
-        elif name == "INSTALLED_APPS":
-            value = list(value)  # force evaluation of generators on Python 3
-            if len(value) != len(set(value)):
-                raise ImproperlyConfigured("The INSTALLED_APPS setting must contain unique values.")
-
-        object.__setattr__(self, name, value)
+    @property
+    def FILE_CHARSET(self):
+        stack = traceback.extract_stack()
+        # Show a warning if the setting is used outside of Django.
+        # Stack index: -1 this line, -2 the caller.
+        filename, _line_number, _function_name, _text = stack[-2]
+        if not filename.startswith(os.path.dirname(django.__file__)):
+            warnings.warn(
+                FILE_CHARSET_DEPRECATED_MSG,
+                RemovedInDjango31Warning,
+                stacklevel=2,
+            )
+        return self.__getattr__('FILE_CHARSET')
 
 
-class Settings(BaseSettings):
+class Settings:
     def __init__(self, settings_module):
         # update this dict from global settings (but only for ALL_CAPS settings)
         for setting in dir(global_settings):
@@ -125,47 +139,54 @@ class Settings(BaseSettings):
         # store the settings module in case someone later cares
         self.SETTINGS_MODULE = settings_module
 
-        try:
-            mod = importlib.import_module(self.SETTINGS_MODULE)
-        except ImportError as e:
-            raise ImportError(
-                "Could not import settings '%s' (Is it on sys.path? Is there an import error in the settings file?): %s"
-                % (self.SETTINGS_MODULE, e)
-            )
+        mod = importlib.import_module(self.SETTINGS_MODULE)
 
-        tuple_settings = ("INSTALLED_APPS", "TEMPLATE_DIRS")
-
+        tuple_settings = (
+            "INSTALLED_APPS",
+            "TEMPLATE_DIRS",
+            "LOCALE_PATHS",
+        )
+        self._explicit_settings = set()
         for setting in dir(mod):
             if setting.isupper():
                 setting_value = getattr(mod, setting)
 
                 if (setting in tuple_settings and
-                        isinstance(setting_value, six.string_types)):
-                    raise ImproperlyConfigured("The %s setting must be a tuple. "
-                            "Please fix your settings." % setting)
-
+                        not isinstance(setting_value, (list, tuple))):
+                    raise ImproperlyConfigured("The %s setting must be a list or a tuple. " % setting)
                 setattr(self, setting, setting_value)
+                self._explicit_settings.add(setting)
 
         if not self.SECRET_KEY:
             raise ImproperlyConfigured("The SECRET_KEY setting must not be empty.")
 
+        if self.is_overridden('FILE_CHARSET'):
+            warnings.warn(FILE_CHARSET_DEPRECATED_MSG, RemovedInDjango31Warning)
+
         if hasattr(time, 'tzset') and self.TIME_ZONE:
             # When we can, attempt to validate the timezone. If we can't find
             # this file, no check happens and it's harmless.
-            zoneinfo_root = '/usr/share/zoneinfo'
-            if (os.path.exists(zoneinfo_root) and not
-                    os.path.exists(os.path.join(zoneinfo_root, *(self.TIME_ZONE.split('/'))))):
+            zoneinfo_root = Path('/usr/share/zoneinfo')
+            zone_info_file = zoneinfo_root.joinpath(*self.TIME_ZONE.split('/'))
+            if zoneinfo_root.exists() and not zone_info_file.exists():
                 raise ValueError("Incorrect timezone setting: %s" % self.TIME_ZONE)
             # Move the time zone info into os.environ. See ticket #2315 for why
             # we don't do this unconditionally (breaks Windows).
             os.environ['TZ'] = self.TIME_ZONE
             time.tzset()
 
+    def is_overridden(self, setting):
+        return setting in self._explicit_settings
 
-class UserSettingsHolder(BaseSettings):
-    """
-    Holder for user configured settings.
-    """
+    def __repr__(self):
+        return '<%(cls)s "%(settings_module)s">' % {
+            'cls': self.__class__.__name__,
+            'settings_module': self.SETTINGS_MODULE,
+        }
+
+
+class UserSettingsHolder:
+    """Holder for user configured settings."""
     # SETTINGS_MODULE doesn't make much sense in the manually configured
     # (standalone) case.
     SETTINGS_MODULE = None
@@ -179,19 +200,37 @@ class UserSettingsHolder(BaseSettings):
         self.default_settings = default_settings
 
     def __getattr__(self, name):
-        if name in self._deleted:
+        if not name.isupper() or name in self._deleted:
             raise AttributeError
         return getattr(self.default_settings, name)
 
     def __setattr__(self, name, value):
         self._deleted.discard(name)
-        return super(UserSettingsHolder, self).__setattr__(name, value)
+        if name == 'FILE_CHARSET':
+            warnings.warn(FILE_CHARSET_DEPRECATED_MSG, RemovedInDjango31Warning)
+        super().__setattr__(name, value)
 
     def __delattr__(self, name):
         self._deleted.add(name)
-        return super(UserSettingsHolder, self).__delattr__(name)
+        if hasattr(self, name):
+            super().__delattr__(name)
 
     def __dir__(self):
-        return list(self.__dict__) + dir(self.default_settings)
+        return sorted(
+            s for s in [*self.__dict__, *dir(self.default_settings)]
+            if s not in self._deleted
+        )
+
+    def is_overridden(self, setting):
+        deleted = (setting in self._deleted)
+        set_locally = (setting in self.__dict__)
+        set_on_default = getattr(self.default_settings, 'is_overridden', lambda s: False)(setting)
+        return deleted or set_locally or set_on_default
+
+    def __repr__(self):
+        return '<%(cls)s>' % {
+            'cls': self.__class__.__name__,
+        }
+
 
 settings = LazySettings()

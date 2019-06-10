@@ -1,8 +1,11 @@
-# -*- encoding: utf-8 -*-
-from __future__ import unicode_literals
+"""
+LANG_INFO is a dictionary structure to provide meta information about languages.
 
-# About name_local: capitalize it as if your language name was appearing
-# inside a sentence in your language.
+About name_local: capitalize it as if your language name was appearing
+inside a sentence in your language.
+The 'fallback' key can be used to specify a special fallback logic which doesn't
+follow the traditional 'fr-ca' -> 'fr' fallback logic.
+"""
 
 LANG_INFO = {
     'af': {
@@ -17,11 +20,17 @@ LANG_INFO = {
         'name': 'Arabic',
         'name_local': 'العربيّة',
     },
+    'ast': {
+        'bidi': False,
+        'code': 'ast',
+        'name': 'Asturian',
+        'name_local': 'asturianu',
+    },
     'az': {
         'bidi': True,
         'code': 'az',
         'name': 'Azerbaijani',
-        'name_local': 'azərbaycan dili',
+        'name_local': 'Azərbaycanca',
     },
     'be': {
         'bidi': False,
@@ -83,6 +92,12 @@ LANG_INFO = {
         'name': 'German',
         'name_local': 'Deutsch',
     },
+    'dsb': {
+        'bidi': False,
+        'code': 'dsb',
+        'name': 'Lower Sorbian',
+        'name_local': 'dolnoserbski',
+    },
     'el': {
         'bidi': False,
         'code': 'el',
@@ -94,6 +109,12 @@ LANG_INFO = {
         'code': 'en',
         'name': 'English',
         'name_local': 'English',
+    },
+    'en-au': {
+        'bidi': False,
+        'code': 'en-au',
+        'name': 'Australian English',
+        'name_local': 'Australian English',
     },
     'en-gb': {
         'bidi': False,
@@ -118,6 +139,12 @@ LANG_INFO = {
         'code': 'es-ar',
         'name': 'Argentinian Spanish',
         'name_local': 'español de Argentina',
+    },
+    'es-co': {
+        'bidi': False,
+        'code': 'es-co',
+        'name': 'Colombian Spanish',
+        'name_local': 'español de Colombia',
     },
     'es-mx': {
         'bidi': False,
@@ -179,6 +206,12 @@ LANG_INFO = {
         'name': 'Irish',
         'name_local': 'Gaeilge',
     },
+    'gd': {
+        'bidi': False,
+        'code': 'gd',
+        'name': 'Scottish Gaelic',
+        'name_local': 'Gàidhlig',
+    },
     'gl': {
         'bidi': False,
         'code': 'gl',
@@ -195,7 +228,7 @@ LANG_INFO = {
         'bidi': False,
         'code': 'hi',
         'name': 'Hindi',
-        'name_local': 'Hindi',
+        'name_local': 'हिंदी',
     },
     'hr': {
         'bidi': False,
@@ -203,17 +236,35 @@ LANG_INFO = {
         'name': 'Croatian',
         'name_local': 'Hrvatski',
     },
+    'hsb': {
+        'bidi': False,
+        'code': 'hsb',
+        'name': 'Upper Sorbian',
+        'name_local': 'hornjoserbsce',
+    },
     'hu': {
         'bidi': False,
         'code': 'hu',
         'name': 'Hungarian',
         'name_local': 'Magyar',
     },
+    'hy': {
+        'bidi': False,
+        'code': 'hy',
+        'name': 'Armenian',
+        'name_local': 'հայերեն',
+    },
     'ia': {
         'bidi': False,
         'code': 'ia',
         'name': 'Interlingua',
         'name_local': 'Interlingua',
+    },
+    'io': {
+        'bidi': False,
+        'code': 'io',
+        'name': 'Ido',
+        'name_local': 'ido',
     },
     'id': {
         'bidi': False,
@@ -244,6 +295,12 @@ LANG_INFO = {
         'code': 'ka',
         'name': 'Georgian',
         'name_local': 'ქართული',
+    },
+    'kab': {
+        'bidi': False,
+        'code': 'kab',
+        'name': 'Kabyle',
+        'name_local': 'taqbaylit',
     },
     'kk': {
         'bidi': False,
@@ -304,6 +361,12 @@ LANG_INFO = {
         'code': 'mn',
         'name': 'Mongolian',
         'name_local': 'Mongolian',
+    },
+    'mr': {
+        'bidi': False,
+        'code': 'mr',
+        'name': 'Marathi',
+        'name_local': 'मराठी',
     },
     'my': {
         'bidi': False,
@@ -387,7 +450,7 @@ LANG_INFO = {
         'bidi': False,
         'code': 'sk',
         'name': 'Slovak',
-        'name_local': 'slovenský',
+        'name_local': 'Slovensky',
     },
     'sl': {
         'bidi': False,
@@ -480,10 +543,7 @@ LANG_INFO = {
         'name_local': 'Tiếng Việt',
     },
     'zh-cn': {
-        'bidi': False,
-        'code': 'zh-cn',
-        'name': 'Simplified Chinese',
-        'name_local': '简体中文',
+        'fallback': ['zh-hans'],
     },
     'zh-hans': {
         'bidi': False,
@@ -497,10 +557,19 @@ LANG_INFO = {
         'name': 'Traditional Chinese',
         'name_local': '繁體中文',
     },
+    'zh-hk': {
+        'fallback': ['zh-hant'],
+    },
+    'zh-mo': {
+        'fallback': ['zh-hant'],
+    },
+    'zh-my': {
+        'fallback': ['zh-hans'],
+    },
+    'zh-sg': {
+        'fallback': ['zh-hans'],
+    },
     'zh-tw': {
-        'bidi': False,
-        'code': 'zh-tw',
-        'name': 'Traditional Chinese',
-        'name_local': '繁體中文',
-    }
+        'fallback': ['zh-hant'],
+    },
 }

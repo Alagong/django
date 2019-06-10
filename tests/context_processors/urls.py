@@ -1,8 +1,8 @@
-from django.conf.urls import patterns
+from django.urls import path
 
 from . import views
 
-
-urlpatterns = patterns('',
-    (r'^request_attrs/$', views.request_processor),
-)
+urlpatterns = [
+    path('request_attrs/', views.request_processor),
+    path('debug/', views.debug_processor),
+]

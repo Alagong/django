@@ -3,10 +3,8 @@ Regression tests for Django built-in views.
 """
 
 from django.db import models
-from django.utils.encoding import python_2_unicode_compatible
 
 
-@python_2_unicode_compatible
 class Author(models.Model):
     name = models.CharField(max_length=100)
 
@@ -14,10 +12,9 @@ class Author(models.Model):
         return self.name
 
     def get_absolute_url(self):
-        return '/views/authors/%s/' % self.id
+        return '/authors/%s/' % self.id
 
 
-@python_2_unicode_compatible
 class BaseArticle(models.Model):
     """
     An abstract article Model so that we can create article models with and
@@ -25,7 +22,7 @@ class BaseArticle(models.Model):
     """
     title = models.CharField(max_length=100)
     slug = models.SlugField()
-    author = models.ForeignKey(Author)
+    author = models.ForeignKey(Author, models.CASCADE)
 
     class Meta:
         abstract = True

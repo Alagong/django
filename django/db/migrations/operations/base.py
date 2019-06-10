@@ -1,4 +1,8 @@
-class Operation(object):
+from django.db import router
+from django.db.models.fields.related import RECURSIVE_RELATIONSHIP_CONSTANT
+
+
+class Operation:
     """
     Base class for migration operations.
 
@@ -21,6 +25,15 @@ class Operation(object):
     # Can this migration be represented as SQL? (things like RunPython cannot)
     reduces_to_sql = True
 
+    # Should this operation be forced as atomic even on backends with no
+    # DDL transaction support (i.e., does it have no DDL, like RunPython)
+    atomic = False
+
+    # Should this operation be considered safe to elide and optimize across?
+    elidable = False
+
+    serialization_expand_args = []
+
     def __new__(cls, *args, **kwargs):
         # We capture the arguments to make returning them trivial
         self = object.__new__(cls)
@@ -29,7 +42,7 @@ class Operation(object):
 
     def deconstruct(self):
         """
-        Returns a 3-tuple of class import path (or just name if it lives
+        Return a 3-tuple of class import path (or just name if it lives
         under django.db.migrations), positional arguments, and keyword
         arguments.
         """
@@ -41,21 +54,21 @@ class Operation(object):
 
     def state_forwards(self, app_label, state):
         """
-        Takes the state from the previous migration, and mutates it
+        Take the state from the previous migration, and mutate it
         so that it matches what this migration would perform.
         """
         raise NotImplementedError('subclasses of Operation must provide a state_forwards() method')
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         """
-        Performs the mutation on the database schema in the normal
+        Perform the mutation on the database schema in the normal
         (forwards) direction.
         """
         raise NotImplementedError('subclasses of Operation must provide a database_forwards() method')
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
         """
-        Performs the mutation on the database schema in the reverse
+        Perform the mutation on the database schema in the reverse
         direction - e.g. if this were CreateModel, it would in fact
         drop the model's table.
         """
@@ -63,13 +76,13 @@ class Operation(object):
 
     def describe(self):
         """
-        Outputs a brief summary of what the action does.
+        Output a brief summary of what the action does.
         """
         return "%s: %s" % (self.__class__.__name__, self._constructor_args)
 
     def references_model(self, name, app_label=None):
         """
-        Returns True if there is a chance this operation references the given
+        Return True if there is a chance this operation references the given
         model name (as a string), with an optional app label for accuracy.
 
         Used for optimization. If in doubt, return True;
@@ -81,12 +94,44 @@ class Operation(object):
 
     def references_field(self, model_name, name, app_label=None):
         """
-        Returns True if there is a chance this operation references the given
+        Return True if there is a chance this operation references the given
         field name, with an optional app label for accuracy.
 
         Used for optimization. If in doubt, return True.
         """
         return self.references_model(model_name, app_label)
+
+    def allow_migrate_model(self, connection_alias, model):
+        """
+        Return whether or not a model may be migrated.
+
+        This is a thin wrapper around router.allow_migrate_model() that
+        preemptively rejects any proxy, swapped out, or unmanaged model.
+        """
+        if not model._meta.can_migrate(connection_alias):
+            return False
+
+        return router.allow_migrate_model(connection_alias, model)
+
+    def reduce(self, operation, app_label=None):
+        """
+        Return either a list of operations the actual operation should be
+        replaced with or a boolean that indicates whether or not the specified
+        operation can be optimized across.
+        """
+        if self.elidable:
+            return [operation]
+        elif operation.elidable:
+            return [self]
+        return False
+
+    def _get_model_tuple(self, remote_model, app_label, model_name):
+        if remote_model == RECURSIVE_RELATIONSHIP_CONSTANT:
+            return app_label, model_name.lower()
+        elif '.' in remote_model:
+            return tuple(remote_model.lower().split('.'))
+        else:
+            return app_label, remote_model.lower()
 
     def __repr__(self):
         return "<%s %s%s>" % (
@@ -94,9 +139,3 @@ class Operation(object):
             ", ".join(map(repr, self._constructor_args[0])),
             ",".join(" %s=%r" % x for x in self._constructor_args[1].items()),
         )
-
-    def __eq__(self, other):
-        return (self.__class__ == other.__class__) and (self.deconstruct() == other.deconstruct())
-
-    def __ne__(self, other):
-        return not (self == other)
